@@ -1,0 +1,218 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>進数変換クイズ</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; max-width: 700px; margin: auto; }
+    .question { font-size: 1.2em; margin-bottom: 1em; }
+    .choices button {
+      display: block; margin: 0.4em 0; width: 100%;
+      padding: 0.5em; font-size: 1em;
+    }
+    .choices button.correct { background: #c8f7c5; }
+    .choices button.incorrect { background: #f7c5c5; }
+    .feedback { margin-top: 1em; font-weight: bold; }
+    .correct { color: green; }
+    .incorrect { color: red; }
+    .reset-msg { color: red; font-weight: bold; margin-top: 1em; }
+    #clearScreen {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255,255,255,0.95); justify-content: center; align-items: center;
+      text-align: center; font-size: 1.5em; color: #006600; z-index: 1000;
+    }
+    .level-select { margin-bottom: 1em; }
+    .history { margin-top: 2em; font-size: 0.9em; }
+    .history table { width: 100%; border-collapse: collapse; }
+    .history th, .history td { border: 1px solid #ccc; padding: 4px; text-align: center; }
+    .toggle-history { margin-top: 1em; }
+    .collapsed { display: none; }
+  </style>
+</head>
+<body>
+
+<h1>進数変換クイズ（8択）</h1>
+
+<div class="level-select">
+  難易度:
+  <select id="levelSelect">
+    <option value="15">レベル1（0〜15）</option>
+    <option value="255" selected>レベル2（0〜255）</option>
+    <option value="65535">レベル3（0〜65535）</option>
+  </select>
+  <button onclick="resetQuiz('difficulty')">難易度を変更</button>
+</div>
+
+<div>連続正解数: <span id="streak">0</span> / 10</div>
+<div class="question" id="question">問題を読み込み中...</div>
+<div class="choices" id="choices"></div>
+<div id="feedback" class="feedback"></div>
+<div id="resetNotice" class="reset-msg"></div>
+
+<div class="history">
+  <h3>履歴</h3>
+  <button id="toggleButton" class="toggle-history" onclick="toggleHistory()">履歴を折りたたみ</button>
+  <table>
+    <thead><tr><th>#</th><th>問題</th><th>選択</th><th>正解</th><th>結果</th></tr></thead>
+    <tbody id="historyBody"></tbody>
+  </table>
+</div>
+
+<div id="clearScreen">
+  <div>
+    🎉 <strong>クリアおめでとう！</strong><br />
+    <span id="clearLevel"></span><br />
+    <button onclick="resetQuiz()">もう一度挑戦</button>
+  </div>
+</div>
+
+<script>
+let currentQuestion = {}, streak = 0, questionCount = 0;
+let resetReason = null, historyLog = [];
+
+const getRandomInt = (max) => Math.floor(Math.random() * (max + 1));
+
+function generateChoices(correct, base) {
+  const correctValue = parseInt(correct, base);
+  const choices = new Set([correct]);
+  while (choices.size < 8) {
+    let offset = Math.floor(Math.random() * 21) - 10;
+    let fake = correctValue + offset;
+    if (fake < 0 || fake === correctValue) continue;
+    choices.add(fake.toString(base));
+  }
+  return Array.from(choices).sort(() => Math.random() - 0.5);
+}
+
+function generateQuestion() {
+  if (streak >= 10) {
+    document.getElementById("clearLevel").textContent =
+      document.querySelector("#levelSelect option:checked").textContent;
+    document.getElementById("clearScreen").style.display = "flex";
+    return;
+  }
+
+  const levelMax = parseInt(document.getElementById("levelSelect").value);
+  const types = ["decToBin", "decToHex", "binToDec", "hexToDec", "binToHex", "hexToBin"];
+  const type = types[Math.floor(Math.random() * types.length)];
+  const number = getRandomInt(levelMax);
+
+  let questionText = "", correctAnswer = "", base = 10;
+
+  switch (type) {
+    case "decToBin":
+      questionText = `10進数 ${number} を 2進数で答えてください。`;
+      correctAnswer = number.toString(2); base = 2; break;
+    case "decToHex":
+      questionText = `10進数 ${number} を 16進数で答えてください。`;
+      correctAnswer = number.toString(16); base = 16; break;
+    case "binToDec":
+      const binStr = number.toString(2);
+      questionText = `2進数 ${binStr} を 10進数で答えてください。`;
+      correctAnswer = parseInt(binStr, 2).toString(10); base = 10; break;
+    case "hexToDec":
+      const hexStr = number.toString(16);
+      questionText = `16進数 ${hexStr} を 10進数で答えてください。`;
+      correctAnswer = parseInt(hexStr, 16).toString(10); base = 10; break;
+    case "binToHex":
+      const bStr = number.toString(2);
+      questionText = `2進数 ${bStr} を 16進数で答えてください。`;
+      correctAnswer = parseInt(bStr, 2).toString(16); base = 16; break;
+    case "hexToBin":
+      const hStr = number.toString(16);
+      questionText = `16進数 ${hStr} を 2進数で答えてください。`;
+      correctAnswer = parseInt(hStr, 16).toString(2); base = 2; break;
+  }
+
+  currentQuestion = { text: questionText, answer: correctAnswer.toLowerCase() };
+  document.getElementById("question").textContent = questionText;
+  document.getElementById("feedback").textContent = "";
+  document.getElementById("resetNotice").textContent = "";
+
+  const choicesDiv = document.getElementById("choices");
+  choicesDiv.innerHTML = "";
+  generateChoices(correctAnswer, base).forEach(choice => {
+    const btn = document.createElement("button");
+    btn.textContent = choice;
+    btn.onclick = () => submitAnswer(choice.toLowerCase(), btn);
+    choicesDiv.appendChild(btn);
+  });
+}
+
+function submitAnswer(userAnswer, btn) {
+  document.querySelectorAll("#choices button").forEach(b => b.disabled = true);
+  const isCorrect = userAnswer === currentQuestion.answer;
+  const feedback = document.getElementById("feedback");
+
+  if (isCorrect) {
+    streak++; btn.classList.add("correct");
+    feedback.textContent = "正解！"; feedback.className = "feedback correct";
+  } else {
+    streak = 0; btn.classList.add("incorrect");
+    feedback.textContent = `不正解！正解は「${currentQuestion.answer}」です。`;
+    feedback.className = "feedback incorrect";
+  }
+
+  document.getElementById("streak").textContent = streak;
+  addHistory(currentQuestion.text, userAnswer, currentQuestion.answer, isCorrect);
+  setTimeout(generateQuestion, 1500);
+}
+
+function addHistory(q, selected, correct, result, system = false) {
+  questionCount++;
+  if (historyLog.length >= 5000) historyLog.shift();
+  const row = document.createElement("tr");
+
+  if (system) {
+    row.innerHTML = `<td>${questionCount}</td><td colspan="4" style="color:red;">${q}</td>`;
+  } else {
+    row.innerHTML = `<td>${questionCount}</td><td>${q}</td><td>${selected}</td><td>${correct}</td><td style="color:${result ? 'green' : 'red'}">${result ? '◯' : '×'}</td>`;
+  }
+
+  const body = document.getElementById("historyBody");
+  body.prepend(row);
+  historyLog.push(row);
+
+  // 折りたたみ制御
+  if (historyLog.length > 100) {
+    document.getElementById("toggleButton").style.display = "inline-block";
+    for (let i = 100; i < historyLog.length; i++) {
+      historyLog[i].classList.add("collapsed");
+    }
+  }
+}
+
+function resetQuiz(reason = null) {
+  streak = 0;
+  document.getElementById("streak").textContent = streak;
+  document.getElementById("clearScreen").style.display = "none";
+  if (reason === "inactive") {
+    addHistory("画面切り替えのためリセットされました。", "", "", "", true);
+    document.getElementById("resetNotice").textContent = "画面切り替えのためリセットされました。";
+  } else if (reason === "difficulty") {
+    addHistory("難易度変更のためリセットされました。", "", "", "", true);
+    document.getElementById("resetNotice").textContent = "難易度変更のためリセットされました。";
+  } else {
+    document.getElementById("resetNotice").textContent = "";
+  }
+  generateQuestion();
+}
+
+function toggleHistory() {
+  const hidden = document.querySelectorAll(".collapsed");
+  const toggle = document.getElementById("toggleButton");
+  hidden.forEach(r => r.style.display = r.style.display === "none" ? "table-row" : "none");
+  toggle.textContent = hidden[0].style.display === "none" ? "履歴を展開" : "履歴を折りたたみ";
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) resetQuiz("inactive");
+});
+
+window.onload = () => {
+  document.getElementById("toggleButton").style.display = "none";
+  generateQuestion();
+};
+</script>
+</body>
+</html>
